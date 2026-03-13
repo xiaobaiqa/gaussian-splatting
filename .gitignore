@@ -3,15 +3,27 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging
+*.egg-info/
+dist/
+build/
+site/
 
 # Virtual environments
 envs/
 .venv/
 venv/
+ENV/
 
 # Build outputs
 build/
 cmake-build-*/
+SIBR_viewers/bin/
+SIBR_viewers/build/
 *.obj
 *.o
 *.so
@@ -21,6 +33,21 @@ cmake-build-*/
 # Large datasets and generated outputs
 data/
 output/
+checkpoints/
+runs/
+logs/
+*.log
+*.tmp
+*.temp
+
+# ML artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.npy
+*.npz
 
 # External third-party binaries/tools
 external/
@@ -29,3 +56,4 @@ external/
 .DS_Store
 Thumbs.db
 .vscode/
+.idea/
