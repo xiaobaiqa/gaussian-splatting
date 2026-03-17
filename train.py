@@ -10,6 +10,7 @@
 #
 
 import os
+import re
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -17,7 +18,7 @@ from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
-import uuid
+from datetime import datetime
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
@@ -30,7 +31,7 @@ except ImportError:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
-    tb_writer = prepare_output_and_logger(dataset)
+    tb_writer = prepare_output_and_logger(dataset, opt)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
@@ -131,13 +132,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
-def prepare_output_and_logger(args):    
+def prepare_output_and_logger(args, opt=None):    
     if not args.model_path:
         if os.getenv('OAR_JOB_ID'):
-            unique_str=os.getenv('OAR_JOB_ID')
+            run_name = os.getenv('OAR_JOB_ID')
         else:
-            unique_str = str(uuid.uuid4())
-        args.model_path = os.path.join("./output/", unique_str[0:10])
+            source_name = os.path.basename(os.path.normpath(args.source_path)) or "scene"
+            source_name = re.sub(r"[^0-9A-Za-z._-]+", "-", source_name).strip("-_.") or "scene"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            iter_tag = getattr(opt, "iterations", None) if opt is not None else getattr(args, "iterations", None)
+            run_name = f"{source_name}_{timestamp}_it{iter_tag if iter_tag is not None else 'NA'}"
+        args.model_path = os.path.join("./output/", run_name)
+
+        # Avoid collisions when two runs start in the same second.
+        if os.path.exists(args.model_path):
+            base_path = args.model_path
+            suffix = 1
+            while os.path.exists(f"{base_path}_{suffix:02d}"):
+                suffix += 1
+            args.model_path = f"{base_path}_{suffix:02d}"
         
     # Set up output folder
     print("Output folder: {}".format(args.model_path))

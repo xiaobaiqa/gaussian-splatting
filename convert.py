@@ -20,14 +20,10 @@ parser.add_argument("--no_gpu", action='store_true')
 parser.add_argument("--skip_matching", action='store_true')
 parser.add_argument("--source_path", "-s", required=True, type=str)
 parser.add_argument("--camera", default="OPENCV", type=str)
-# 获取当前工作路径
-current_path = os.getcwd()
-colmap_path = os.path.join(current_path, 'external', r'COLMAP-3.8-windows-cuda\colmap.bat')
-# colmap_path = os.path.join(current_path, 'external', r'COLMAP-3.7-windows-no-cuda\colmap.bat')
-magick_path = os.path.join(current_path, 'external', r'ImageMagick-7.1.1-Q16-HDRI\magick.exe')
-parser.add_argument("--colmap_executable", default=colmap_path, type=str)
+# Default to PATH tools for Linux/devcontainer environments.
+parser.add_argument("--colmap_executable", default="colmap", type=str)
 parser.add_argument("--resize", action="store_true")
-parser.add_argument("--magick_executable", default=magick_path, type=str)
+parser.add_argument("--magick_executable", default="magick", type=str)
 args = parser.parse_args()
 colmap_command = '"{}"'.format(args.colmap_executable) if len(args.colmap_executable) > 0 else "colmap"
 magick_command = '"{}"'.format(args.magick_executable) if len(args.magick_executable) > 0 else "magick"

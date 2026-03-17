@@ -88,3 +88,9 @@ Enabling the `--train_test_exp` option includes the left half of the test images
 
 We report the training times with all features enabled using the original 3dgs rasterizer *(baseline)* and the accelerated rasterizer with default optimizer then sparse adam.
 ![Training-times](assets/charts/timings.png)
+
+## Local Video Jobs
+
+| Date (UTC) | Job Name | Iterations | Eval Split | SSIM | PSNR | LPIPS | Model Path |
+|---|---|---:|---|---:|---:|---:|---|
+| 2026-03-16 | input2_fine | 12000 | train (fallback) | 0.9680 | 35.5313 | 0.1153 | `output/input2_fine_20260316_161045_it12000` |

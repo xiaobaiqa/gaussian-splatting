@@ -33,6 +33,20 @@ def readImages(renders_dir, gt_dir):
         image_names.append(fname)
     return renders, gts, image_names
 
+def pick_eval_dir(scene_dir: Path) -> Path:
+    """Prefer test split; fall back to train when test renders are unavailable."""
+    preferred = scene_dir / "ggbond"
+    fallback = scene_dir / "train"
+    for candidate in [preferred, fallback]:
+        if not candidate.exists():
+            continue
+        for method in os.listdir(candidate):
+            render_dir = candidate / method / "renders"
+            gt_dir = candidate / method / "gt"
+            if render_dir.exists() and gt_dir.exists() and any(render_dir.iterdir()):
+                return candidate
+    return preferred
+
 def evaluate(model_paths):
 
     full_dict = {}
@@ -49,9 +63,10 @@ def evaluate(model_paths):
             full_dict_polytopeonly[scene_dir] = {}
             per_view_dict_polytopeonly[scene_dir] = {}
 
-            test_dir = Path(scene_dir) / "ggbond"
+            eval_dir = pick_eval_dir(Path(scene_dir))
+            print("Eval split:", eval_dir.name)
 
-            for method in os.listdir(test_dir):
+            for method in os.listdir(eval_dir):
                 print("Method:", method)
 
                 full_dict[scene_dir][method] = {}
@@ -59,10 +74,15 @@ def evaluate(model_paths):
                 full_dict_polytopeonly[scene_dir][method] = {}
                 per_view_dict_polytopeonly[scene_dir][method] = {}
 
-                method_dir = test_dir / method
+                method_dir = eval_dir / method
                 gt_dir = method_dir/ "gt"
                 renders_dir = method_dir / "renders"
+                if not renders_dir.exists() or not gt_dir.exists():
+                    continue
                 renders, gts, image_names = readImages(renders_dir, gt_dir)
+                if len(renders) == 0:
+                    print("  Skip empty render set.")
+                    continue
 
                 ssims = []
                 psnrs = []

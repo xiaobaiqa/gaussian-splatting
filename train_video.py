@@ -1,28 +1,114 @@
+import argparse
 import os
+import re
+import shlex
 import subprocess
+import sys
+from datetime import datetime
 
-# 视频绝对路径
-video_path = r"D:\code\gaussian-splatting\data\myscene\input\zhijin.mp4"
-# 切分帧数，每秒多少帧
-fps = 2
 
-# 获取当前工作路径
-current_path = os.getcwd()
-# 上一级文件夹所在路径
-folder_path = os.path.dirname(video_path)
-# 图片保存路径
-images_path = os.path.join(folder_path, 'input')
-os.makedirs(images_path, exist_ok=True)
+def run(cmd):
+    print(">>>", " ".join(shlex.quote(c) for c in cmd))
+    subprocess.run(cmd, check=True)
 
-ffmpeg_path = os.path.join(current_path, 'external', r'ffmpeg/bin/ffmpeg.exe')
 
-# 脚本运行
-# 视频切分脚本
-command = f'{ffmpeg_path} -i {video_path} -qscale:v 1 -qmin 1 -vf fps={fps} {images_path}\\%04d.jpg'
-subprocess.run(command, shell=True)
-# COLMAP估算相机位姿
-command = f'python convert.py -s {folder_path}'
-subprocess.run(command, shell=True)
-# 模型训练脚本，模型会保存在output路径下
-command = f'python train.py -s {folder_path}'
-subprocess.run(command, shell=True)
+def sanitize_name(text: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", text.strip())
+    return name.strip("._-") or "video_job"
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Video -> COLMAP -> Gaussian Splatting trainer")
+    parser.add_argument(
+        "--video",
+        default="data/video_jobs/input.mp4",
+        help="Path to input video file.",
+    )
+    parser.add_argument(
+        "--name",
+        default="",
+        help="Job name. Defaults to video filename stem.",
+    )
+    parser.add_argument(
+        "--jobs_root",
+        default="data/video_jobs",
+        help="Root folder for per-video scene jobs.",
+    )
+    parser.add_argument(
+        "--output_root",
+        default="output",
+        help="Root folder for trained model outputs.",
+    )
+    parser.add_argument("--fps", type=float, default=2.0, help="Frame sampling FPS.")
+    parser.add_argument("--iterations", type=int, default=3000, help="Train iterations for quick run.")
+    args = parser.parse_args()
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    video_path = os.path.abspath(os.path.join(root, args.video))
+    if not os.path.isfile(video_path):
+        print(f"Video not found: {video_path}")
+        sys.exit(1)
+
+    default_name = os.path.splitext(os.path.basename(video_path))[0]
+    job_name = sanitize_name(args.name if args.name else default_name)
+    jobs_root = os.path.abspath(os.path.join(root, args.jobs_root))
+    output_root = os.path.abspath(os.path.join(root, args.output_root))
+
+    job_dir = os.path.join(jobs_root, job_name)
+    scene_path = os.path.join(job_dir, "scene")
+    input_path = os.path.join(scene_path, "input")
+    os.makedirs(job_dir, exist_ok=True)
+    os.makedirs(input_path, exist_ok=True)
+
+    for fname in os.listdir(input_path):
+        if fname.lower().endswith((".jpg", ".jpeg", ".png")):
+            os.remove(os.path.join(input_path, fname))
+
+    run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-qscale:v",
+            "1",
+            "-qmin",
+            "1",
+            "-vf",
+            f"fps={args.fps}",
+            os.path.join(input_path, "%04d.jpg"),
+        ]
+    )
+
+    run(
+        [
+            sys.executable,
+            os.path.join(root, "convert.py"),
+            "-s",
+            scene_path,
+            "--colmap_executable",
+            "colmap",
+            "--no_gpu",
+        ]
+    )
+
+    run(
+        [
+            sys.executable,
+            os.path.join(root, "train.py"),
+            "-s",
+            scene_path,
+            "-m",
+            os.path.join(
+                output_root,
+                f"{job_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_it{args.iterations}",
+            ),
+            "--iterations",
+            str(args.iterations),
+        ]
+    )
+
+    print("\nDone.")
+    print(f"Video: {video_path}")
+    print(f"Job:   {job_name}")
+    print(f"Scene: {scene_path}")
