@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
@@ -33,6 +34,12 @@ def find_sibr_executable(root: Path) -> tuple[Path | None, Path | None]:
 
 def find_render_and_gt(model_path: Path) -> tuple[Path | None, Path | None]:
     ours_dirs = sorted(model_path.glob("*/ours_*"))
+    for ours in ours_dirs:
+        render_dir = ours / "renders"
+        gt_dir = ours / "gt"
+        if render_dir.exists() and gt_dir.exists():
+            if any(render_dir.glob("*.png")) and any(gt_dir.glob("*.png")):
+                return render_dir, gt_dir
     for ours in ours_dirs:
         render_dir = ours / "renders"
         gt_dir = ours / "gt"
@@ -87,13 +94,16 @@ def run() -> int:
         return 1
 
     exe, run_path = find_sibr_executable(ROOT)
-    if exe is not None and run_path is not None:
+    if exe is not None and run_path is not None and os.environ.get("DISPLAY"):
         print(f"Launching SIBR viewer: {exe}")
         print(f"Model path: {model_path}")
         subprocess.run([str(exe), "-m", str(model_path)], cwd=run_path, check=False)
         return 0
 
-    print("SIBR_gaussianViewer_app not found. Falling back to render-vs-gt preview video.")
+    if exe is not None and run_path is not None and not os.environ.get("DISPLAY"):
+        print("SIBR_gaussianViewer_app found, but DISPLAY is missing. Falling back to render-vs-gt preview video.")
+    else:
+        print("SIBR_gaussianViewer_app not found. Falling back to render-vs-gt preview video.")
     render_dir, gt_dir = find_render_and_gt(model_path)
     if render_dir is None or gt_dir is None:
         print(f"No renders/gt folder found under: {model_path}")
