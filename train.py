@@ -29,6 +29,29 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
+
+def log_scene_stats(tb_writer, iteration, gaussians, densify_stats=None):
+    num_points = gaussians.get_xyz.shape[0]
+    opacity_mean = gaussians.get_opacity.mean().item()
+    scale_mean = gaussians.get_scaling.mean().item()
+
+    if tb_writer:
+        tb_writer.add_scalar("scene/num_points", num_points, iteration)
+        tb_writer.add_scalar("scene/opacity_mean", opacity_mean, iteration)
+        tb_writer.add_scalar("scene/scale_mean", scale_mean, iteration)
+        if densify_stats is not None:
+            tb_writer.add_scalar("densify/before_points", densify_stats["before"], iteration)
+            tb_writer.add_scalar("densify/clone_candidates", densify_stats["clone_candidates"], iteration)
+            tb_writer.add_scalar("densify/split_candidates", densify_stats["split_candidates"], iteration)
+            tb_writer.add_scalar("densify/pruned", densify_stats["pruned"], iteration)
+            tb_writer.add_scalar("densify/after_points", densify_stats["after"], iteration)
+
+    return {
+        "num_points": int(num_points),
+        "opacity_mean": opacity_mean,
+        "scale_mean": scale_mean,
+    }
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset, opt)
@@ -111,6 +134,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 scene.save(iteration)
 
             # Densification
+            densify_stats = None
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
@@ -119,9 +143,32 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
+                    densify_stats = gaussians.last_densify_stats
+                    if densify_stats is not None:
+                        print(
+                            "[ITER {}] Densify stats: before={} clone={} split={} pruned={} after={}".format(
+                                iteration,
+                                densify_stats["before"],
+                                densify_stats["clone_candidates"],
+                                densify_stats["split_candidates"],
+                                densify_stats["pruned"],
+                                densify_stats["after"],
+                            )
+                        )
                 
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
+
+            scene_stats = log_scene_stats(tb_writer, iteration, gaussians, densify_stats)
+            if iteration % 500 == 0 or densify_stats is not None:
+                print(
+                    "[ITER {}] Scene stats: points={} opacity_mean={:.5f} scale_mean={:.5f}".format(
+                        iteration,
+                        scene_stats["num_points"],
+                        scene_stats["opacity_mean"],
+                        scene_stats["scale_mean"],
+                    )
+                )
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -141,7 +188,9 @@ def prepare_output_and_logger(args, opt=None):
             source_name = re.sub(r"[^0-9A-Za-z._-]+", "-", source_name).strip("-_.") or "scene"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             iter_tag = getattr(opt, "iterations", None) if opt is not None else getattr(args, "iterations", None)
-            run_name = f"{source_name}_{timestamp}_it{iter_tag if iter_tag is not None else 'NA'}"
+            densify_tag = getattr(opt, "densify_grad_threshold", None) if opt is not None else getattr(args, "densify_grad_threshold", None)
+            densify_suffix = f"_dgt{densify_tag:g}" if densify_tag is not None else ""
+            run_name = f"{source_name}_{timestamp}_it{iter_tag if iter_tag is not None else 'NA'}{densify_suffix}"
         args.model_path = os.path.join("./output/", run_name)
 
         # Avoid collisions when two runs start in the same second.
@@ -200,7 +249,6 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
 
         if tb_writer:
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
-            tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        self.last_densify_stats = None
         self.setup_functions()
 
     def capture(self):
@@ -387,8 +388,20 @@ class GaussianModel:
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
+        before_count = int(self.get_xyz.shape[0])
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
+
+        clone_candidates = torch.logical_and(
+            torch.norm(grads, dim=-1) >= max_grad,
+            torch.max(self.get_scaling, dim=1).values <= self.percent_dense * extent,
+        )
+        split_candidates = torch.logical_and(
+            grads.squeeze() >= max_grad,
+            torch.max(self.get_scaling, dim=1).values > self.percent_dense * extent,
+        )
+        clone_count = int(clone_candidates.sum().item())
+        split_count = int(split_candidates.sum().item())
 
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
@@ -398,7 +411,17 @@ class GaussianModel:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+        pruned_count = int(prune_mask.sum().item())
         self.prune_points(prune_mask)
+
+        after_count = int(self.get_xyz.shape[0])
+        self.last_densify_stats = {
+            "before": before_count,
+            "clone_candidates": clone_count,
+            "split_candidates": split_count,
+            "pruned": pruned_count,
+            "after": after_count,
+        }
 
         torch.cuda.empty_cache()
 
